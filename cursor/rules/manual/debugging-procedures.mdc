@@ -1,0 +1,328 @@
+# Debugging & Auditing Procedures (Manual Only)
+
+## Performance Debugging
+
+### Bundle Analysis
+When bundle size exceeds budget thresholds:
+
+```bash
+# 1. Analyze bundle composition
+npm run bundle:analyze
+
+# 2. Check for duplicate dependencies
+npx duplicate-package-checker-webpack-plugin
+
+# 3. Identify unused code
+npx unimported
+npx depcheck
+
+# 4. Analyze individual chunks
+npx webpack-bundle-analyzer dist/static/js/*.js
+```
+
+### Performance Profiling
+```typescript
+// Performance measurement utilities
+const measurePerformance = (name: string, fn: () => void) => {
+  performance.mark(`${name}-start`);
+  fn();
+  performance.mark(`${name}-end`);
+  performance.measure(name, `${name}-start`, `${name}-end`);
+  
+  const measure = performance.getEntriesByName(name)[0];
+  console.log(`${name}: ${measure.duration}ms`);
+};
+
+// React component profiling
+const ProfiledComponent = React.memo(({ data }) => {
+  useEffect(() => {
+    performance.mark('component-render-start');
+    return () => {
+      performance.mark('component-render-end');
+      performance.measure('component-render', 'component-render-start', 'component-render-end');
+    };
+  });
+
+  return <ExpensiveComponent data={data} />;
+});
+
+// Memory usage tracking
+const trackMemoryUsage = () => {
+  if (performance.memory) {
+    console.log({
+      usedJSHeapSize: (performance.memory.usedJSHeapSize / 1048576).toFixed(2) + ' MB',
+      totalJSHeapSize: (performance.memory.totalJSHeapSize / 1048576).toFixed(2) + ' MB',
+      jsHeapSizeLimit: (performance.memory.jsHeapSizeLimit / 1048576).toFixed(2) + ' MB'
+    });
+  }
+};
+```
+
+## Accessibility Auditing
+
+### Comprehensive A11y Testing
+```bash
+# 1. Automated testing
+npm run lighthouse:a11y
+npm run test:a11y
+
+# 2. Screen reader testing checklist
+# - NVDA (Windows): Test navigation and announcements
+# - JAWS (Windows): Test complex interactions
+# - VoiceOver (macOS): Test mobile experience
+# - Orca (Linux): Test alternative screen reader
+
+# 3. Keyboard navigation audit
+# - Tab through all interactive elements
+# - Test arrow keys in menus/lists
+# - Verify Escape key behavior
+# - Test Enter/Space on buttons
+```
+
+### Manual A11y Audit Checklist
+```typescript
+// Accessibility audit helper
+const a11yAudit = {
+  checkContrast: (element: HTMLElement) => {
+    const styles = window.getComputedStyle(element);
+    const bgColor = styles.backgroundColor;
+    const textColor = styles.color;
+    
+    // Calculate contrast ratio (simplified)
+    console.log(`Background: ${bgColor}, Text: ${textColor}`);
+    // Use external library for actual calculation
+  },
+  
+  checkFocusVisible: () => {
+    const focusableElements = document.querySelectorAll(
+      'a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    
+    focusableElements.forEach((el, index) => {
+      console.log(`Element ${index}:`, {
+        tagName: el.tagName,
+        hasVisibleFocus: getComputedStyle(el, ':focus').outline !== 'none',
+        tabIndex: el.getAttribute('tabindex'),
+        ariaLabel: el.getAttribute('aria-label')
+      });
+    });
+  },
+  
+  checkHeadingStructure: () => {
+    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    const structure = Array.from(headings).map(h => ({
+      level: parseInt(h.tagName.charAt(1)),
+      text: h.textContent?.trim().substring(0, 50),
+      element: h
+    }));
+    
+    console.log('Heading structure:', structure);
+    
+    // Check for proper hierarchy
+    let currentLevel = 0;
+    structure.forEach(({ level, text }, index) => {
+      if (level > currentLevel + 1) {
+        console.warn(`Heading level skip at "${text}" (${level} after ${currentLevel})`);
+      }
+      currentLevel = level;
+    });
+  }
+};
+```
+
+## Security Auditing
+
+### Security Scan Procedures
+```bash
+# 1. Dependency vulnerability scan
+npm audit --audit-level moderate
+npm audit fix
+
+# 2. Static security analysis
+npx eslint . --ext .ts,.tsx --config .eslintrc-security.json
+
+# 3. Secret detection
+npx secret-scanner .
+git log --patch | npx detect-secrets
+
+# 4. Bundle security analysis
+npx audit-ci --moderate
+```
+
+### Runtime Security Checks
+```typescript
+// Content Security Policy validation
+const validateCSP = () => {
+  const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+  if (!meta) {
+    console.warn('No Content Security Policy found');
+    return;
+  }
+  
+  const csp = meta.getAttribute('content');
+  console.log('CSP:', csp);
+  
+  // Check for unsafe policies
+  if (csp?.includes("'unsafe-inline'")) {
+    console.warn("CSP contains 'unsafe-inline'");
+  }
+  if (csp?.includes("'unsafe-eval'")) {
+    console.warn("CSP contains 'unsafe-eval'");
+  }
+};
+
+// Local storage security audit
+const auditLocalStorage = () => {
+  const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth'];
+  
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && sensitiveKeys.some(sensitive => 
+      key.toLowerCase().includes(sensitive)
+    )) {
+      console.warn(`Potentially sensitive data in localStorage: ${key}`);
+    }
+  }
+};
+
+// Input validation audit
+const auditInputValidation = () => {
+  const inputs = document.querySelectorAll('input, textarea');
+  
+  inputs.forEach(input => {
+    const hasValidation = {
+      required: input.hasAttribute('required'),
+      pattern: input.hasAttribute('pattern'),
+      minLength: input.hasAttribute('minlength'),
+      maxLength: input.hasAttribute('maxlength'),
+      type: input.getAttribute('type')
+    };
+    
+    console.log(`Input validation for ${input.name || 'unnamed'}:`, hasValidation);
+  });
+};
+```
+
+## Code Quality Auditing
+
+### Technical Debt Analysis
+```bash
+# 1. Complexity analysis
+npx complexity-report src/
+
+# 2. Circular dependency detection
+npx madge --circular src/
+
+# 3. Dead code elimination
+npx ts-prune
+
+# 4. Type coverage
+npx type-coverage --strict
+
+# 5. Documentation coverage
+npx typedoc --validation
+```
+
+### Code Smell Detection
+```typescript
+// Code quality metrics
+const codeQualityAudit = {
+  checkFunctionLength: () => {
+    // Analyze function lengths in current file
+    const functions = document.querySelectorAll('script');
+    // Implementation would parse and analyze function lengths
+  },
+  
+  checkComplexity: () => {
+    // Measure cyclomatic complexity
+    // Implementation would use AST parsing
+  },
+  
+  checkDuplication: () => {
+    // Detect code duplication patterns
+    // Implementation would compare code blocks
+  },
+  
+  checkNaming: () => {
+    // Validate naming conventions
+    // Implementation would check against style guide
+  }
+};
+```
+
+## Environment-Specific Debugging
+
+### Development Tools
+```typescript
+// Development-only debugging utilities
+if (process.env.NODE_ENV === 'development') {
+  // React DevTools integration
+  window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = window.__REACT_DEVTOOLS_GLOBAL_HOOK__ || {};
+  
+  // Performance monitoring
+  const perfObserver = new PerformanceObserver((list) => {
+    list.getEntries().forEach((entry) => {
+      if (entry.duration > 16) { // > 1 frame at 60fps
+        console.warn(`Slow operation: ${entry.name} took ${entry.duration}ms`);
+      }
+    });
+  });
+  
+  perfObserver.observe({ entryTypes: ['measure'] });
+  
+  // Memory leak detection
+  let componentCount = 0;
+  const originalCreateElement = React.createElement;
+  React.createElement = (...args) => {
+    componentCount++;
+    return originalCreateElement(...args);
+  };
+  
+  setInterval(() => {
+    console.log(`Component instances: ${componentCount}`);
+  }, 10000);
+}
+```
+
+### Production Debugging
+```typescript
+// Production-safe debugging
+const productionDebug = {
+  enableLogging: (level: 'error' | 'warn' | 'info') => {
+    const originalConsole = { ...console };
+    
+    ['log', 'warn', 'error', 'info'].forEach(method => {
+      console[method] = (...args) => {
+        if (level === 'error' && method !== 'error') return;
+        if (level === 'warn' && !['error', 'warn'].includes(method)) return;
+        
+        originalConsole[method](...args);
+      };
+    });
+  },
+  
+  captureError: (error: Error, context: Record<string, any>) => {
+    // Send to error tracking service
+    const errorReport = {
+      message: error.message,
+      stack: error.stack,
+      context,
+      userAgent: navigator.userAgent,
+      timestamp: new Date().toISOString(),
+      url: window.location.href
+    };
+    
+    // Send to monitoring service (e.g., Sentry, LogRocket)
+    console.error('Error captured:', errorReport);
+  }
+};
+```
+
+## When to Use Manual Procedures
+
+- **Performance Issues**: When Core Web Vitals scores decline
+- **Bundle Size Growth**: When approaching 75% of performance budget
+- **Accessibility Complaints**: When users report accessibility issues
+- **Security Concerns**: After dependency updates or security advisories
+- **Code Quality Degradation**: When complexity metrics exceed thresholds
+- **Production Incidents**: For post-mortem analysis and debugging

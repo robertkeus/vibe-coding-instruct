@@ -1,0 +1,665 @@
+---
+globs: ["**/hooks/**/*.ts", "**/*.hook.ts", "**/use*.ts"]
+description: "React custom hooks with strict TypeScript patterns and accessibility"
+---
+
+# React Hooks Rules (File-Specific)
+
+## React Hook TypeScript Patterns
+
+### Hook Interface Design
+```typescript
+// ✅ Always define explicit return types and interfaces
+interface UseApiState<T> {
+  readonly data: T | null;
+  readonly loading: boolean;
+  readonly error: Error | null;
+}
+
+interface UseApiActions {
+  readonly refetch: () => Promise<void>;
+  readonly reset: () => void;
+  readonly cancel: () => void;
+}
+
+interface UseApiReturn<T> extends UseApiState<T>, UseApiActions {}
+
+/**
+ * Custom hook for API data fetching with full TypeScript safety
+ * 
+ * @param url - API endpoint URL  
+ * @param options - Fetch options
+ * @returns Object with data, loading state, error, and control functions
+ */
+export function useApi<T>(
+  url: string, 
+  options?: RequestInit
+): UseApiReturn<T> {
+  const [state, setState] = useState<UseApiState<T>>({
+    data: null,
+    loading: false,
+    error: null,
+  });
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const fetchData = useCallback(async (): Promise<void> => {
+    // Cancel previous request
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+
+    setState(prev => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data: T = await response.json();
+      setState({ data, loading: false, error: null });
+    } catch (error) {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        setState(prev => ({
+          ...prev,
+          loading: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        }));
+      }
+    }
+  }, [url, options]);
+
+  const reset = useCallback((): void => {
+    abortControllerRef.current?.abort();
+    setState({ data: null, loading: false, error: null });
+  }, []);
+
+  const cancel = useCallback((): void => {
+    abortControllerRef.current?.abort();
+    setState(prev => ({ ...prev, loading: false }));
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    return () => abortControllerRef.current?.abort();
+  }, [fetchData]);
+
+  return {
+    ...state,
+    refetch: fetchData,
+    reset,
+    cancel,
+  };
+}
+```
+
+### Accessibility-First Hook Design
+```typescript
+// ✅ Hooks that prioritize accessibility
+interface UseFocusTrapOptions {
+  readonly isActive: boolean;
+  readonly initialFocus?: boolean;
+  readonly restoreFocus?: boolean;
+  readonly allowOutsideClick?: boolean;
+}
+
+interface UseFocusTrapReturn {
+  readonly containerRef: React.RefObject<HTMLElement>;
+  readonly activate: () => void;
+  readonly deactivate: () => void;
+  readonly isActive: boolean;
+}
+
+/**
+ * Hook for managing focus trapping within a container (modals, dropdowns)
+ * Ensures keyboard navigation stays within the designated area
+ */
+export function useFocusTrap(options: UseFocusTrapOptions): UseFocusTrapReturn {
+  const {
+    isActive,
+    initialFocus = true,
+    restoreFocus = true,
+    allowOutsideClick = false,
+  } = options;
+
+  const containerRef = useRef<HTMLElement>(null);
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
+  const [trapActive, setTrapActive] = useState(false);
+
+  const getFocusableElements = useCallback((): HTMLElement[] => {
+    if (!containerRef.current) return [];
+
+    const focusableSelectors = [
+      'button:not([disabled])',
+      '[href]:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"]):not([disabled])',
+      'details:not([disabled])',
+      'summary:not(:disabled)',
+    ].join(', ');
+
+    return Array.from(containerRef.current.querySelectorAll(focusableSelectors));
+  }, []);
+
+  const activate = useCallback((): void => {
+    if (restoreFocus) {
+      previousActiveElementRef.current = document.activeElement as HTMLElement;
+    }
+
+    setTrapActive(true);
+
+    if (initialFocus && containerRef.current) {
+      const focusableElements = getFocusableElements();
+      const firstElement = focusableElements[0];
+      
+      if (firstElement) {
+        firstElement.focus();
+      } else {
+        containerRef.current.focus();
+      }
+    }
+  }, [initialFocus, restoreFocus, getFocusableElements]);
+
+  const deactivate = useCallback((): void => {
+    setTrapActive(false);
+
+    if (restoreFocus && previousActiveElementRef.current) {
+      previousActiveElementRef.current.focus();
+      previousActiveElementRef.current = null;
+    }
+  }, [restoreFocus]);
+
+  // Handle keyboard events for focus trapping
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!trapActive || !containerRef.current) return;
+
+      if (event.key === 'Tab') {
+        const focusableElements = getFocusableElements();
+        
+        if (focusableElements.length === 0) {
+          event.preventDefault();
+          return;
+        }
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+        const activeElement = document.activeElement;
+
+        if (event.shiftKey) {
+          // Shift + Tab: moving backwards
+          if (activeElement === firstElement) {
+            event.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          // Tab: moving forwards
+          if (activeElement === lastElement) {
+            event.preventDefault();
+            firstElement.focus();
+          }
+        }
+      }
+
+      if (event.key === 'Escape' && allowOutsideClick) {
+        deactivate();
+      }
+    };
+
+    if (trapActive) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [trapActive, getFocusableElements, allowOutsideClick, deactivate]);
+
+  // Auto activate/deactivate based on isActive prop
+  useEffect(() => {
+    if (isActive && !trapActive) {
+      activate();
+    } else if (!isActive && trapActive) {
+      deactivate();
+    }
+  }, [isActive, trapActive, activate, deactivate]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (restoreFocus && previousActiveElementRef.current) {
+        previousActiveElementRef.current.focus();
+      }
+    };
+  }, [restoreFocus]);
+
+  return {
+    containerRef,
+    activate,
+    deactivate,
+    isActive: trapActive,
+  };
+}
+```
+
+### Form Hooks with Accessibility
+```typescript
+// ✅ Form management with built-in accessibility features
+interface ValidationRule<T> {
+  readonly validator: (value: T) => boolean;
+  readonly message: string;
+}
+
+interface FieldConfig<T> {
+  readonly initialValue: T;
+  readonly required?: boolean;
+  readonly rules?: readonly ValidationRule<T>[];
+  readonly ariaLabel?: string;
+  readonly ariaDescription?: string;
+}
+
+interface FieldState<T> {
+  readonly value: T;
+  readonly error: string | null;
+  readonly touched: boolean;
+  readonly dirty: boolean;
+}
+
+interface FieldActions<T> {
+  readonly setValue: (value: T) => void;
+  readonly setError: (error: string | null) => void;
+  readonly setTouched: (touched: boolean) => void;
+  readonly validate: () => boolean;
+  readonly reset: () => void;
+}
+
+interface UseFieldReturn<T> extends FieldState<T>, FieldActions<T> {
+  readonly fieldProps: {
+    readonly value: T;
+    readonly onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    readonly onBlur: () => void;
+    readonly 'aria-label'?: string;
+    readonly 'aria-describedby'?: string;
+    readonly 'aria-invalid': boolean;
+    readonly required?: boolean;
+  };
+  readonly errorId: string;
+  readonly descriptionId: string;
+}
+
+/**
+ * Hook for managing individual form fields with validation and accessibility
+ */
+export function useField<T = string>(
+  name: string,
+  config: FieldConfig<T>
+): UseFieldReturn<T> {
+  const {
+    initialValue,
+    required = false,
+    rules = [],
+    ariaLabel,
+    ariaDescription,
+  } = config;
+
+  const [state, setState] = useState<FieldState<T>>({
+    value: initialValue,
+    error: null,
+    touched: false,
+    dirty: false,
+  });
+
+  const errorId = `${name}-error`;
+  const descriptionId = `${name}-description`;
+
+  const validateField = useCallback((value: T): string | null => {
+    if (required && (!value || (typeof value === 'string' && !value.trim()))) {
+      return 'This field is required';
+    }
+
+    for (const rule of rules) {
+      if (!rule.validator(value)) {
+        return rule.message;
+      }
+    }
+
+    return null;
+  }, [required, rules]);
+
+  const setValue = useCallback((value: T): void => {
+    setState(prev => ({
+      ...prev,
+      value,
+      dirty: value !== initialValue,
+      error: validateField(value),
+    }));
+  }, [initialValue, validateField]);
+
+  const setError = useCallback((error: string | null): void => {
+    setState(prev => ({ ...prev, error }));
+  }, []);
+
+  const setTouched = useCallback((touched: boolean): void => {
+    setState(prev => ({ ...prev, touched }));
+  }, []);
+
+  const validate = useCallback((): boolean => {
+    const error = validateField(state.value);
+    setState(prev => ({ ...prev, error, touched: true }));
+    return error === null;
+  }, [state.value, validateField]);
+
+  const reset = useCallback((): void => {
+    setState({
+      value: initialValue,
+      error: null,
+      touched: false,
+      dirty: false,
+    });
+  }, [initialValue]);
+
+  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
+    const newValue = event.target.value as T;
+    setValue(newValue);
+  }, [setValue]);
+
+  const handleBlur = useCallback((): void => {
+    setTouched(true);
+  }, [setTouched]);
+
+  const fieldProps = useMemo(() => ({
+    value: state.value,
+    onChange: handleChange,
+    onBlur: handleBlur,
+    'aria-label': ariaLabel,
+    'aria-describedby': [
+      ariaDescription ? descriptionId : null,
+      state.error ? errorId : null,
+    ].filter(Boolean).join(' ') || undefined,
+    'aria-invalid': state.error !== null,
+    required,
+  }), [
+    state.value,
+    state.error,
+    handleChange,
+    handleBlur,
+    ariaLabel,
+    ariaDescription,
+    descriptionId,
+    errorId,
+    required,
+  ]);
+
+  return {
+    ...state,
+    setValue,
+    setError,
+    setTouched,
+    validate,
+    reset,
+    fieldProps,
+    errorId,
+    descriptionId,
+  };
+}
+```
+
+## Hook Dependencies and Effects
+
+### Proper Dependency Arrays (Critical)
+```typescript
+// ✅ Complete and accurate dependency arrays
+export const useApiData = <T>(url: string, options?: RequestInit): UseApiReturn<T> => {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  // ✅ All dependencies included
+  const fetchData = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const result: T = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setLoading(false);
+    }
+  }, [url, options]); // ✅ All external values included
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]); // ✅ Callback included
+
+  return { data, loading, error, refetch: fetchData };
+};
+
+// ❌ NEVER: Missing dependencies
+const badHook = (userId: string) => {
+  useEffect(() => {
+    fetchUserData(userId);
+  }); // Missing [userId] dependency
+};
+
+// ❌ NEVER: Ignoring exhaustive-deps ESLint rule
+const anotherBadHook = (url: string) => {
+  useEffect(() => {
+    fetchData(url);
+  }, []); // eslint-disable-next-line react-hooks/exhaustive-deps
+};
+```
+
+### Performance Optimization Hooks
+```typescript
+// ✅ Memoization hooks with proper typing
+interface UseExpensiveCalculationOptions {
+  readonly precision?: number;
+  readonly cache?: boolean;
+}
+
+export function useExpensiveCalculation(
+  input: number[],
+  options: UseExpensiveCalculationOptions = {}
+): number {
+  const { precision = 2, cache = true } = options;
+
+  return useMemo(() => {
+    // Expensive calculation here
+    const result = input.reduce((acc, val, index) => {
+      return acc + Math.pow(val, index + 1);
+    }, 0);
+
+    return Number(result.toFixed(precision));
+  }, [input, precision]); // ✅ Proper dependencies
+}
+
+// ✅ Debounced callback with cleanup
+export function useDebouncedCallback<T extends readonly unknown[]>(
+  callback: (...args: T) => void,
+  delay: number
+): (...args: T) => void {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedCallback = useCallback(
+    (...args: T): void => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      timeoutRef.current = setTimeout(() => {
+        callback(...args);
+      }, delay);
+    },
+    [callback, delay]
+  );
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return debouncedCallback;
+}
+```
+
+## React Hook Anti-Patterns (Never Do)
+
+### Forbidden Hook Patterns
+```typescript
+// ❌ NEVER: Conditional hooks
+function BadHook(condition: boolean) {
+  if (condition) {
+    const [state, setState] = useState(0); // Breaks rules of hooks
+  }
+  
+  return null;
+}
+
+// ❌ NEVER: Hooks in loops
+function AnotherBadHook(items: string[]) {
+  const states = [];
+  for (const item of items) {
+    states.push(useState(item)); // Breaks rules of hooks
+  }
+  
+  return states;
+}
+
+// ❌ NEVER: Hooks in nested functions
+function YetAnotherBadHook() {
+  const handleClick = () => {
+    const [clicked, setClicked] = useState(false); // Breaks rules of hooks
+  };
+  
+  return handleClick;
+}
+
+// ❌ NEVER: Missing return type annotations
+export const useUntypedHook = (value) => { // Missing TypeScript types
+  const [state, setState] = useState(value);
+  return [state, setState];
+};
+
+// ❌ NEVER: Mutating state directly
+export const useBadState = () => {
+  const [items, setItems] = useState<string[]>([]);
+  
+  const addItem = (item: string) => {
+    items.push(item); // Direct mutation
+    setItems(items); // Won't trigger re-render
+  };
+  
+  return { items, addItem };
+};
+
+// ✅ GOOD: Immutable state updates
+export const useGoodState = (): {
+  readonly items: readonly string[];
+  readonly addItem: (item: string) => void;
+} => {
+  const [items, setItems] = useState<readonly string[]>([]);
+  
+  const addItem = useCallback((item: string): void => {
+    setItems(prev => [...prev, item]); // Immutable update
+  }, []);
+  
+  return { items, addItem };
+};
+```
+
+## Hook Testing Requirements
+
+### Testing Custom Hooks
+```typescript
+// ✅ Proper hook testing with TypeScript
+import { renderHook, act } from '@testing-library/react';
+import { useApi } from './useApi';
+
+// Mock fetch for testing
+global.fetch = jest.fn();
+
+describe('useApi Hook', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should fetch data successfully', async () => {
+    const mockData = { id: 1, name: 'Test' };
+    (fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockData,
+    });
+
+    const { result } = renderHook(() => useApi<typeof mockData>('/api/test'));
+
+    // Initial state
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBe(null);
+    expect(result.current.error).toBe(null);
+
+    // Wait for fetch to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual(mockData);
+    expect(result.current.error).toBe(null);
+  });
+
+  it('should handle fetch errors', async () => {
+    const errorMessage = 'Network error';
+    (fetch as jest.Mock).mockRejectedValueOnce(new Error(errorMessage));
+
+    const { result } = renderHook(() => useApi('/api/test'));
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toBe(null);
+    expect(result.current.error?.message).toBe(errorMessage);
+  });
+
+  it('should cancel requests on unmount', async () => {
+    const abortSpy = jest.fn();
+    global.AbortController = jest.fn(() => ({
+      abort: abortSpy,
+      signal: {},
+    })) as any;
+
+    const { unmount } = renderHook(() => useApi('/api/test'));
+
+    unmount();
+
+    expect(abortSpy).toHaveBeenCalled();
+  });
+});
+```
+
+## Hook Requirements Checklist
+
+✅ **Type Safety**: Explicit return types and parameter types  
+✅ **Accessibility**: ARIA support and keyboard navigation built-in  
+✅ **Performance**: Proper memoization and dependency arrays  
+✅ **Error Handling**: Graceful error states and cleanup  
+✅ **Testing**: Comprehensive unit tests with proper mocking  
+✅ **Documentation**: JSDoc comments explaining behavior  
+✅ **Rules of Hooks**: Never conditional, in loops, or nested  
+✅ **Immutability**: State updates never mutate existing state
