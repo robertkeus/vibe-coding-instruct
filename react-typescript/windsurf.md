@@ -1,4 +1,3 @@
-
 # Follow the Plan / Implement / Review Approach
 
 ## Core Identity

@@ -6,7 +6,9 @@ A comprehensive collection of configuration files that ensure consistent, high-q
 
 ## 🎯 Project Overview
 
-This repository contains meticulously crafted configuration files for four major AI coding platforms, each optimized for React + TypeScript development with proper prompt engineering principles:
+This repository contains meticulously crafted configuration files for four major AI coding platforms, each optimized for React + TypeScript development with proper prompt engineering principles.
+
+**Built upon the foundation of [AI Developer Guide](https://github.com/dwmkerr/ai-developer-guide)** - a comprehensive set of standards, patterns and principles for development projects that work excellently with AI and development teams.
 
 - **[Cursor Rules](#cursor-rules)** - Advanced project rules for Cursor IDE
 - **[Replit Configuration](#replit-configuration)** - Agent behavior customization for Replit
@@ -389,6 +391,7 @@ MIT License - see LICENSE file for details.
 
 ## 🔗 References
 
+- [AI Developer Guide](https://github.com/dwmkerr/ai-developer-guide) - Foundation for development standards and AI collaboration patterns
 - [Cursor Rules Documentation](https://docs.cursor.com/context/rules)
 - [Replit.md Documentation](https://docs.replit.com/replitai/replit-dot-md)
 - [Lovable Knowledge Features](https://docs.lovable.dev/features/knowledge)
